@@ -1,0 +1,296 @@
+openapi: 3.1.0
+info:
+  title: NexusAI Recovery Workspace API
+  version: 1.0.0
+  description: Same-origin session API for the sample-data sales recovery workspace. Consequential actions run only through an approved sandbox adapter.
+servers:
+  - url: http://localhost:4173
+security:
+  - sessionCookie: []
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: nexus_session
+  schemas:
+    TaskInput:
+      type: object
+      required: [objective]
+      properties:
+        objective: { type: string, minLength: 10, maxLength: 1600 }
+        periodDays: { type: integer, enum: [30, 90, 180], default: 90 }
+        demoScenario: { type: boolean, default: true }
+      additionalProperties: false
+    AIFriendInput:
+      type: object
+      required: [name, need]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 40 }
+        need: { type: string, minLength: 10, maxLength: 400 }
+        personality: { type: string, maxLength: 160 }
+        tone: { type: string, enum: [warm, encouraging, direct, curious, playful, calm] }
+        boundaries: { type: string, maxLength: 500 }
+      additionalProperties: false
+    AIFriendMessage:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 2000 }
+      additionalProperties: false
+    ApprovalDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [approve, reject, cancel] }
+        rationale: { type: string, maxLength: 500 }
+      additionalProperties: false
+paths:
+  /api/health:
+    get:
+      security: []
+      summary: Runtime and persistence mode
+      responses:
+        '200': { description: Healthy }
+  /api/session:
+    get:
+      security: []
+      summary: Current session and demo sign-in details
+      responses:
+        '200': { description: Session state }
+  /api/login:
+    post:
+      security: []
+      summary: Sign in
+      responses:
+        '200': { description: Signed in; sets HttpOnly session cookie }
+        '401': { description: Invalid credentials }
+  /api/register:
+    post:
+      security: []
+      summary: Register a workspace member
+      responses:
+        '201': { description: Created }
+        '409': { description: Email already exists }
+  /api/logout:
+    post:
+      summary: Revoke current session
+      responses:
+        '200': { description: Signed out }
+  /api/dashboard:
+    get:
+      summary: Derived dashboard metrics and recent activity
+      parameters:
+        - { in: query, name: days, schema: { type: integer, enum: [30, 90, 180] } }
+      responses:
+        '200': { description: Dashboard data }
+  /api/tools:
+    get:
+      summary: Registered tools, permissions, bounded execution policies, and schemas
+      responses:
+        '200': { description: Tool registry }
+  /api/opportunities:
+    get:
+      summary: Search sample sales opportunity records
+      parameters:
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string, enum: [Open, Won, Lost] } }
+      responses:
+        '200': { description: Opportunity rows }
+  /api/tasks:
+    get:
+      summary: List tasks owned by the current user
+      responses:
+        '200': { description: Task list }
+    post:
+      summary: Start a sales investigation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskInput' }
+      responses:
+        '202': { description: Task accepted }
+        '400': { description: Invalid or unsupported objective }
+  /api/tasks/{taskId}:
+    get:
+      summary: Inspect owned task details, stages, evidence, tools, actions, approvals, and events
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Task detail }
+        '404': { description: Not found }
+  /api/tasks/{taskId}/pause:
+    post:
+      summary: Pause a running task at a stage boundary
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Paused }
+        '409': { description: Task is not running }
+  /api/tasks/{taskId}/resume:
+    post:
+      summary: Resume a paused task
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Resumed }
+  /api/tasks/{taskId}/cancel:
+    post:
+      summary: Cancel an unsettled task
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Cancelled }
+  /api/tasks/{taskId}/retry:
+    post:
+      summary: Create a new task using the same objective
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string } }
+      responses:
+        '202': { description: Retry task created }
+  /api/approvals:
+    get:
+      summary: List approval requests and decisions owned by the user
+      responses:
+        '200': { description: Approval list }
+  /api/approvals/{approvalId}/decision:
+    post:
+      summary: Approve, reject, or cancel a proposal. Approval does not execute.
+      parameters:
+        - { in: path, name: approvalId, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalDecision' }
+      responses:
+        '200': { description: Decision recorded }
+        '409': { description: Already decided or action hash no longer matches }
+  /api/actions/{actionId}/execute:
+    post:
+      summary: Execute a currently approved action once through the sandbox adapter
+      parameters:
+        - { in: path, name: actionId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Execution and verification result }
+        '409': { description: Missing, rejected, expired, changed, or duplicate approval }
+  /api/flight-recorder:
+    get:
+      summary: Search and filter flight-recorder events
+      parameters:
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: type, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string } }
+      responses:
+        '200': { description: Events and visible tasks }
+  /api/flight-recorder/{taskId}:
+    get:
+      summary: Task-specific event trace and event-chain integrity result
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Trace and verification }
+  /api/flight-recorder/{taskId}/export:
+    get:
+      summary: Export a JSON trace or readable report
+      parameters:
+        - { in: path, name: taskId, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: format, schema: { type: string, enum: [json, report] } }
+      responses:
+        '200': { description: Downloadable report }
+  /api/telemetry:
+    get:
+      summary: Admin-only aggregated operational metrics
+      responses:
+        '200': { description: Telemetry }
+        '403': { description: Administrator role required }
+  /api/ai-friends:
+    get:
+      summary: List the current user's AI friends
+      responses:
+        '200': { description: AI friends and active reply mode }
+    post:
+      summary: Create a personalized AI friend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIFriendInput' }
+      responses:
+        '201': { description: AI friend created }
+        '400': { description: Invalid friend details }
+  /api/ai-friends/{friendId}/messages:
+    get:
+      summary: Read the current user's private chat with an AI friend
+      parameters:
+        - { in: path, name: friendId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Chat history }
+        '404': { description: AI friend not found }
+    post:
+      summary: Send a message and receive a personalized AI friend reply
+      parameters:
+        - { in: path, name: friendId, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIFriendMessage' }
+      responses:
+        '200': { description: User message and AI friend reply }
+        '404': { description: AI friend not found }
+  /api/discovery:
+    get:
+      summary: Opt-in friendship recommendations and weighted compatibility estimates
+      responses:
+        '200': { description: Recommendations }
+  /api/friend-requests:
+    post:
+      summary: Send a local demo friend request
+      responses:
+        '201': { description: Request added to demo outbox }
+  /api/conversations:
+    get:
+      summary: List conversations the user participates in
+      responses:
+        '200': { description: Conversations }
+  /api/conversations/{conversationId}/messages:
+    post:
+      summary: Send a private message within an owned conversation
+      parameters:
+        - { in: path, name: conversationId, required: true, schema: { type: string } }
+      responses:
+        '201': { description: Message persisted }
+        '404': { description: Conversation not found }
+  /api/communities:
+    get:
+      summary: List communities
+      responses:
+        '200': { description: Communities }
+  /api/communities/{communityId}/join:
+    post:
+      summary: Toggle current user's community membership
+      parameters:
+        - { in: path, name: communityId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Membership updated }
+  /api/profile:
+    get:
+      summary: Read own profile and privacy
+      responses:
+        '200': { description: Own profile }
+    patch:
+      summary: Update own profile
+      responses:
+        '200': { description: Updated profile }
+  /api/privacy:
+    patch:
+      summary: Update own profile visibility preferences
+      responses:
+        '200': { description: Updated privacy }
+  /api/notifications:
+    get:
+      summary: List own notifications
+      responses:
+        '200': { description: Notifications }
