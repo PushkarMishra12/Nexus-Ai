@@ -8,7 +8,7 @@ The workspace is **Demo Mode** by default. It does not connect to a live CRM, em
 
 Requirements: Node.js 20+ and npm.
 
-    cd outputs/nexusai
+    git clone https://github.com/PushkarMishra12/Nexus-Ai.git; Set-Location Nexus-Ai
     npm install
     Copy-Item .env.example .env
     npm run dev
